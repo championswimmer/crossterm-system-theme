@@ -1,4 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs'
+import process from 'node:process'
+import { URL } from 'node:url'
 
 const mode = process.argv[2] ?? 'write'
 const packageJsonPath = new URL('../package.json', import.meta.url)
