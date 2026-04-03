@@ -111,14 +111,7 @@ jobs:
       - run: npm run prepublishOnly
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish native packages
-        env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          for pkg in npm/*; do
-            npm publish "$pkg" --access public
-          done
 
       - name: Publish root package
         env:
