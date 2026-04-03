@@ -19,17 +19,16 @@ const version = packageJson.version
 const cargoToml = readFileSync(cargoTomlPath, 'utf8')
 const cargoLock = readFileSync(cargoLockPath, 'utf8')
 
-function createCargoLockVersionPattern(capturePrefix = false) {
+function createCargoLockVersionPattern(flags = '') {
   return new RegExp(
-    capturePrefix
-      ? String.raw`(\[\[package\]\]\nname = "${packageName}"\nversion = ")([^"]+)(")`
-      : String.raw`\[\[package\]\]\nname = "${packageName}"\nversion = "([^"]+)"`,
+    String.raw`\[\[package\]\]\nname = "${packageName}"\nversion = "([^"]+)"`,
+    flags,
   )
 }
 
 function replaceCargoLockVersion(source, targetVersion) {
   return source.replace(
-    createCargoLockVersionPattern(),
+    createCargoLockVersionPattern('g'),
     `[[package]]\nname = "${packageName}"\nversion = "${targetVersion}"`,
   )
 }
@@ -130,12 +129,6 @@ if (mode === 'check') {
 } else {
   const nextCargoToml = replaceCargoTomlVersion(cargoToml, version)
   const nextCargoLock = replaceCargoLockVersion(cargoLock, version)
-
-  if (nextCargoLock === cargoLock) {
-    throw new Error(
-      `Unable to update native/Cargo.lock because the ${packageName} package entry was not found`,
-    )
-  }
 
   writeFileSync(
     cargoTomlPath,
