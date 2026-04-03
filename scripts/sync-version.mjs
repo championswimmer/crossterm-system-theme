@@ -18,12 +18,14 @@ const version = packageJson.version
 
 const cargoToml = readFileSync(cargoTomlPath, 'utf8')
 const cargoLock = readFileSync(cargoLockPath, 'utf8')
+const cargoTomlLineEnding = cargoToml.includes('\r\n') ? '\r\n' : '\n'
 const cargoLockLineEnding = cargoLock.includes('\r\n') ? '\r\n' : '\n'
-const cargoLockLineEndingPattern = cargoLockLineEnding === '\r\n' ? '\\r\\n' : '\\n'
+const cargoLockLineEndingForRegex =
+  cargoLockLineEnding === '\r\n' ? '\\r\\n' : '\\n'
 
 function createCargoLockVersionPattern(flags = '') {
   return new RegExp(
-    String.raw`\[\[package\]\]${cargoLockLineEndingPattern}name = "${packageName}"${cargoLockLineEndingPattern}version = "([^"]+)"`,
+    String.raw`\[\[package\]\]${cargoLockLineEndingForRegex}name = "${packageName}"${cargoLockLineEndingForRegex}version = "([^"]+)"`,
     flags,
   )
 }
@@ -36,7 +38,7 @@ function replaceCargoLockVersion(source, targetVersion) {
 }
 
 function findCargoTomlVersion(source) {
-  const lines = source.split('\n')
+  const lines = source.split(/\r?\n/)
   let inPackageSection = false
 
   for (const line of lines) {
@@ -70,7 +72,7 @@ function findCargoTomlVersion(source) {
 }
 
 function replaceCargoTomlVersion(source, targetVersion) {
-  const lines = source.split('\n')
+  const lines = source.split(/\r?\n/)
   let inPackageSection = false
 
   for (const [index, line] of lines.entries()) {
@@ -90,7 +92,7 @@ function replaceCargoTomlVersion(source, targetVersion) {
 
     if (versionLinePattern.test(line)) {
       lines[index] = `version = "${targetVersion}"`
-      return lines.join('\n')
+      return lines.join(cargoTomlLineEnding)
     }
   }
 
