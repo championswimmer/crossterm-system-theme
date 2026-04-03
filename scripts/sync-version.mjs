@@ -18,10 +18,12 @@ const version = packageJson.version
 
 const cargoToml = readFileSync(cargoTomlPath, 'utf8')
 const cargoLock = readFileSync(cargoLockPath, 'utf8')
+const cargoLockLineEnding = cargoLock.includes('\r\n') ? '\r\n' : '\n'
+const cargoLockLineEndingPattern = cargoLockLineEnding === '\r\n' ? '\\r\\n' : '\\n'
 
 function createCargoLockVersionPattern(flags = '') {
   return new RegExp(
-    String.raw`\[\[package\]\]\nname = "${packageName}"\nversion = "([^"]+)"`,
+    String.raw`\[\[package\]\]${cargoLockLineEndingPattern}name = "${packageName}"${cargoLockLineEndingPattern}version = "([^"]+)"`,
     flags,
   )
 }
@@ -29,7 +31,7 @@ function createCargoLockVersionPattern(flags = '') {
 function replaceCargoLockVersion(source, targetVersion) {
   return source.replace(
     createCargoLockVersionPattern('g'),
-    `[[package]]\nname = "${packageName}"\nversion = "${targetVersion}"`,
+    `[[package]]${cargoLockLineEnding}name = "${packageName}"${cargoLockLineEnding}version = "${targetVersion}"`,
   )
 }
 
