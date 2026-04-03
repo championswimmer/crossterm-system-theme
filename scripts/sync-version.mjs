@@ -8,6 +8,7 @@ const cargoTomlPath = new URL('../native/Cargo.toml', import.meta.url)
 const cargoLockPath = new URL('../native/Cargo.lock', import.meta.url)
 
 const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'))
+const packageName = packageJson.name
 const version = packageJson.version
 
 const cargoToml = readFileSync(cargoTomlPath, 'utf8')
@@ -17,7 +18,9 @@ const cargoTomlVersionMatch = cargoToml.match(
   /\[package\][\s\S]*?\nversion = "([^"]+)"/,
 )
 const cargoLockVersionMatch = cargoLock.match(
-  /\[\[package\]\]\nname = "crossterm-system-theme"\nversion = "([^"]+)"/,
+  new RegExp(
+    String.raw`\[\[package\]\]\nname = "${packageName}"\nversion = "([^"]+)"`,
+  ),
 )
 
 if (!cargoTomlVersionMatch || !cargoLockVersionMatch) {
@@ -44,7 +47,9 @@ if (mode === 'check') {
   writeFileSync(
     cargoLockPath,
     cargoLock.replace(
-      /(\[\[package\]\]\nname = "crossterm-system-theme"\nversion = ")([^"]+)(")/,
+      new RegExp(
+        String.raw`(\[\[package\]\]\nname = "${packageName}"\nversion = ")([^"]+)(")`,
+      ),
       `$1${version}$3`,
     ),
   )
