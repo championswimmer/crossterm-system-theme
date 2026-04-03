@@ -3,10 +3,10 @@ name: Release Native
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 jobs:
   build:
+    if: startsWith(github.event.release.tag_name, 'v')
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -51,7 +51,7 @@ jobs:
     name: Publish npm packages
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
 
     steps:
       - uses: actions/checkout@v5
