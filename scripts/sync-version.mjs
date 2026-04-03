@@ -22,10 +22,19 @@ const cargoTomlLineEnding = cargoToml.includes('\r\n') ? '\r\n' : '\n'
 const cargoLockLineEnding = cargoLock.includes('\r\n') ? '\r\n' : '\n'
 const cargoLockLineEndingForRegex =
   cargoLockLineEnding === '\r\n' ? '\\r\\n' : '\\n'
+const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+function createCargoLockVersionBlock(targetVersion) {
+  return [
+    '[[package]]',
+    `name = "${packageName}"`,
+    `version = "${targetVersion}"`,
+  ].join(cargoLockLineEnding)
+}
 
 function createCargoLockVersionPattern(flags = '') {
   return new RegExp(
-    String.raw`\[\[package\]\]${cargoLockLineEndingForRegex}name = "${packageName}"${cargoLockLineEndingForRegex}version = "([^"]+)"`,
+    String.raw`\[\[package\]\]${cargoLockLineEndingForRegex}name = "${escapedPackageName}"${cargoLockLineEndingForRegex}version = "([^"]+)"`,
     flags,
   )
 }
@@ -33,7 +42,7 @@ function createCargoLockVersionPattern(flags = '') {
 function replaceCargoLockVersion(source, targetVersion) {
   return source.replace(
     createCargoLockVersionPattern('g'),
-    `[[package]]${cargoLockLineEnding}name = "${packageName}"${cargoLockLineEnding}version = "${targetVersion}"`,
+    () => createCargoLockVersionBlock(targetVersion),
   )
 }
 
