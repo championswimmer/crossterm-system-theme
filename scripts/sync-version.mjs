@@ -27,6 +27,13 @@ function createCargoLockVersionPattern(capturePrefix = false) {
   )
 }
 
+function replaceCargoLockVersion(source, targetVersion) {
+  return source.replace(
+    createCargoLockVersionPattern(),
+    `[[package]]\nname = "${packageName}"\nversion = "${targetVersion}"`,
+  )
+}
+
 function findCargoTomlVersion(source) {
   const lines = source.split('\n')
   let inPackageSection = false
@@ -122,10 +129,7 @@ if (mode === 'check') {
   }
 } else {
   const nextCargoToml = replaceCargoTomlVersion(cargoToml, version)
-  const nextCargoLock = cargoLock.replace(
-    createCargoLockVersionPattern(true),
-    `$1${version}$3`,
-  )
+  const nextCargoLock = replaceCargoLockVersion(cargoLock, version)
 
   if (nextCargoLock === cargoLock) {
     throw new Error(
@@ -136,9 +140,11 @@ if (mode === 'check') {
   writeFileSync(
     cargoTomlPath,
     nextCargoToml,
+    'utf8',
   )
   writeFileSync(
     cargoLockPath,
     nextCargoLock,
+    'utf8',
   )
 }
