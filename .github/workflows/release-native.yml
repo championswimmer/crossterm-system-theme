@@ -1,12 +1,19 @@
 name: Release Native
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
-    if: startsWith(github.event.release.tag_name, 'v')
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -47,11 +54,35 @@ jobs:
           path: native/crossterm-system-theme.*.node
           if-no-files-found: error
 
-  publish:
-    name: Publish npm packages
+  release:
+    name: Create GitHub release and upload native artifacts
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: bindings-*
+          merge-multiple: true
+
+      - name: Show release assets
+        run: ls -lah release-assets
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release-assets/*.node
+          fail_on_unmatched_files: true
+
+  publish:
+    name: Publish npm packages
+    needs: [build, release]
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v5
@@ -70,6 +101,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: bindings-*
 
       - name: Flatten downloaded native artifacts
         run: find artifacts -name '*.node' -exec cp {} . \;
