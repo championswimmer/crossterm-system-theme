@@ -2,10 +2,11 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
 import { URL } from 'node:url'
 
-const mode = process.argv[2] ?? 'write'
+const mode = process.argv[2]
 const packageJsonPath = new URL('../package.json', import.meta.url)
 const cargoTomlPath = new URL('../native/Cargo.toml', import.meta.url)
 const cargoLockPath = new URL('../native/Cargo.lock', import.meta.url)
+const cargoTomlVersionPattern = /^version = "([^"]+)"$/
 
 if (mode !== 'check' && mode !== 'write') {
   throw new Error(`Invalid mode "${mode}". Expected "check" or "write".`)
@@ -17,6 +18,14 @@ const version = packageJson.version
 
 const cargoToml = readFileSync(cargoTomlPath, 'utf8')
 const cargoLock = readFileSync(cargoLockPath, 'utf8')
+
+function createCargoLockVersionPattern(capturePrefix = false) {
+  return new RegExp(
+    capturePrefix
+      ? String.raw`(\[\[package\]\]\nname = "${packageName}"\nversion = ")([^"]+)(")`
+      : String.raw`\[\[package\]\]\nname = "${packageName}"\nversion = "([^"]+)"`,
+  )
+}
 
 function findCargoTomlVersion(source) {
   const lines = source.split('\n')
@@ -35,7 +44,7 @@ function findCargoTomlVersion(source) {
       return null
     }
 
-    const match = line.match(/^version = "([^"]+)"$/)
+    const match = line.match(cargoTomlVersionPattern)
     if (match) {
       return match[1]
     }
@@ -61,7 +70,7 @@ function replaceCargoTomlVersion(source, nextVersion) {
       break
     }
 
-    if (/^version = "([^"]+)"$/.test(line)) {
+    if (cargoTomlVersionPattern.test(line)) {
       lines[index] = `version = "${nextVersion}"`
       return lines.join('\n')
     }
@@ -71,11 +80,7 @@ function replaceCargoTomlVersion(source, nextVersion) {
 }
 
 const cargoTomlVersion = findCargoTomlVersion(cargoToml)
-const cargoLockVersionMatch = cargoLock.match(
-  new RegExp(
-    String.raw`\[\[package\]\]\nname = "${packageName}"\nversion = "([^"]+)"`,
-  ),
-)
+const cargoLockVersionMatch = cargoLock.match(createCargoLockVersionPattern())
 
 if (!cargoTomlVersion || !cargoLockVersionMatch) {
   const missingFiles = [
@@ -89,8 +94,16 @@ if (!cargoTomlVersion || !cargoLockVersionMatch) {
 
 if (mode === 'check') {
   if (cargoTomlVersion !== version || cargoLockVersionMatch[1] !== version) {
+    const mismatches = [
+      cargoTomlVersion !== version
+        ? `native/Cargo.toml=${cargoTomlVersion}`
+        : null,
+      cargoLockVersionMatch[1] !== version
+        ? `native/Cargo.lock=${cargoLockVersionMatch[1]}`
+        : null,
+    ].filter(Boolean)
     throw new Error(
-      `Version mismatch detected: package.json=${version}, Cargo.toml=${cargoTomlVersion}, Cargo.lock=${cargoLockVersionMatch[1]}`,
+      `Version mismatch detected for ${mismatches.join(', ')}; package.json=${version}`,
     )
   }
 } else {
@@ -108,9 +121,7 @@ if (mode === 'check') {
   writeFileSync(
     cargoLockPath,
     cargoLock.replace(
-      new RegExp(
-        String.raw`(\[\[package\]\]\nname = "${packageName}"\nversion = ")([^"]+)(")`,
-      ),
+      createCargoLockVersionPattern(true),
       `$1${version}$3`,
     ),
   )
