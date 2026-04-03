@@ -12,5 +12,18 @@ dark-light = "2.0.0"
 napi = { version = "3.2.5", default-features = false, features = ["napi8"] }
 napi-derive = "3.2.5"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.3"
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+  "alloc",
+  "NSDistributedNotificationCenter",
+  "NSNotification",
+  "NSObjCRuntime",
+  "NSOperation",
+  "NSString",
+  "block2",
+] }
+
 [build-dependencies]
 napi-build = "2.1.5"
