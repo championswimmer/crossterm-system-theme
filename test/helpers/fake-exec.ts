@@ -83,10 +83,10 @@ export function controllableChildProcess(): FakeChildProcessControls {
   return {
     child,
     pushStdout(data) {
-      child.stdout.write(data)
+      ;(child.stdout as PassThrough).write(data)
     },
     pushStderr(data) {
-      child.stderr.write(data)
+      ;(child.stderr as PassThrough).write(data)
     },
     emitError(error) {
       child.emit('error', error)

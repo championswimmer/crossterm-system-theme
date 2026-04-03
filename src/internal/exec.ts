@@ -111,7 +111,7 @@ export function createNodeExecAdapter(): ExecAdapter {
         windowsHide: true,
         stdio: 'pipe',
         ...options
-      })
+      }) as ChildProcessWithoutNullStreams
     }
   }
 }

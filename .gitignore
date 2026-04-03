@@ -3,3 +3,8 @@ dist/
 coverage/
 .DS_Store/
 
+*.node
+native/target/
+native/index.js
+native/index.d.ts
+

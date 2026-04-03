@@ -1,0 +1,16 @@
+[package]
+name = "crossterm-system-theme"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "crossterm_system_theme"
+crate-type = ["cdylib"]
+
+[dependencies]
+dark-light = "2.0.0"
+napi = { version = "3.2.5", default-features = false, features = ["napi8"] }
+napi-derive = "3.2.5"
+
+[build-dependencies]
+napi-build = "2.1.5"

@@ -15,6 +15,7 @@
     "declarationMap": true,
     "sourceMap": true,
     "types": ["node", "vitest/globals"],
+    "ignoreDeprecations": "6.0",
     "outDir": "dist"
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "tsup.config.ts", "eslint.config.mjs"],

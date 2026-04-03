@@ -17,5 +17,14 @@ export function logDebug(
   message: string,
   meta?: Record<string, unknown>
 ): void {
-  debugLogger?.({ scope, message, meta })
+  if (!debugLogger) {
+    return
+  }
+
+  if (meta) {
+    debugLogger({ scope, message, meta })
+    return
+  }
+
+  debugLogger({ scope, message })
 }

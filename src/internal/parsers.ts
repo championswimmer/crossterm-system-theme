@@ -2,11 +2,12 @@ import type { SystemTheme } from '../types.js'
 
 export function parsePortalColorSchemeValue(raw: string): SystemTheme | null {
   const match = raw.match(/(?:uint32\s+)?([012])/)
-  if (!match) {
+  const rawValue = match?.[1]
+  if (!rawValue) {
     return null
   }
 
-  const value = Number(match[1])
+  const value = Number(rawValue)
   if (value === 1) {
     return 'dark'
   }
@@ -61,13 +62,15 @@ export function parseMacOsDefaults(raw: string): SystemTheme | null {
 
 export function parseWindowsAppsUseLightTheme(raw: string): SystemTheme | null {
   const hexMatch = raw.match(/AppsUseLightTheme\s+REG_DWORD\s+0x([0-9a-f]+)/i)
-  if (hexMatch) {
-    return Number.parseInt(hexMatch[1], 16) === 0 ? 'dark' : 'light'
+  const hexValue = hexMatch?.[1]
+  if (hexValue) {
+    return Number.parseInt(hexValue, 16) === 0 ? 'dark' : 'light'
   }
 
   const decimalMatch = raw.match(/AppsUseLightTheme\s+REG_DWORD\s+([01])/i)
-  if (decimalMatch) {
-    return Number.parseInt(decimalMatch[1], 10) === 0 ? 'dark' : 'light'
+  const decimalValue = decimalMatch?.[1]
+  if (decimalValue) {
+    return Number.parseInt(decimalValue, 10) === 0 ? 'dark' : 'light'
   }
 
   return null
