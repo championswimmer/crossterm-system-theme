@@ -1,0 +1,25 @@
+{
+  "name": "crossterm-system-theme",
+  "version": "0.1.0",
+  "description": "NodeJS equivalent of Rust crossterm's feature to detect light/dark system themes ",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/championswimmer/crossterm-system-theme.git"
+  },
+  "keywords": [
+    "crossterm",
+    "tui",
+    "cli",
+    "system-theme"
+  ],
+  "author": "Arnav Gupta <dev@championswimmer.in>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/championswimmer/crossterm-system-theme/issues"
+  },
+  "homepage": "https://github.com/championswimmer/crossterm-system-theme#readme"
+}
