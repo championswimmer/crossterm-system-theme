@@ -6,7 +6,7 @@ const mode = process.argv[2]
 const packageJsonPath = new URL('../package.json', import.meta.url)
 const cargoTomlPath = new URL('../native/Cargo.toml', import.meta.url)
 const cargoLockPath = new URL('../native/Cargo.lock', import.meta.url)
-const cargoTomlVersionPattern = /^version = "([^"]+)"$/
+const versionLinePattern = /^version = "([^"]+)"$/
 
 if (mode !== 'check' && mode !== 'write') {
   throw new Error(`Invalid mode "${mode}". Expected "check" or "write".`)
@@ -44,7 +44,7 @@ function findCargoTomlVersion(source) {
       return null
     }
 
-    const match = line.match(cargoTomlVersionPattern)
+    const match = line.match(versionLinePattern)
     if (match) {
       return match[1]
     }
@@ -53,7 +53,7 @@ function findCargoTomlVersion(source) {
   return null
 }
 
-function replaceCargoTomlVersion(source, nextVersion) {
+function replaceCargoTomlVersion(source, targetVersion) {
   const lines = source.split('\n')
   let inPackageSection = false
 
@@ -70,8 +70,8 @@ function replaceCargoTomlVersion(source, nextVersion) {
       break
     }
 
-    if (cargoTomlVersionPattern.test(line)) {
-      lines[index] = `version = "${nextVersion}"`
+    if (versionLinePattern.test(line)) {
+      lines[index] = `version = "${targetVersion}"`
       return lines.join('\n')
     }
   }
