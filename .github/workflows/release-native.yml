@@ -109,6 +109,8 @@ jobs:
       - run: npm run artifacts
       - run: npm run build:ts
       - run: npm run prepublishOnly
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish native packages
         env:
