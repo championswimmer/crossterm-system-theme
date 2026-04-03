@@ -41,7 +41,9 @@ function findCargoTomlVersion(source) {
     }
 
     if (line.startsWith('[')) {
-      return null
+      throw new Error(
+        'Unable to find version field in the [package] section of native/Cargo.toml',
+      )
     }
 
     const match = line.match(versionLinePattern)
@@ -50,7 +52,13 @@ function findCargoTomlVersion(source) {
     }
   }
 
-  return null
+  if (!inPackageSection) {
+    throw new Error('Unable to find a [package] section in native/Cargo.toml')
+  }
+
+  throw new Error(
+    'Unable to find version field in the [package] section of native/Cargo.toml',
+  )
 }
 
 function replaceCargoTomlVersion(source, targetVersion) {
@@ -67,7 +75,9 @@ function replaceCargoTomlVersion(source, targetVersion) {
     }
 
     if (line.startsWith('[')) {
-      break
+      throw new Error(
+        'Unable to update native/Cargo.toml because the [package] section does not contain a version field',
+      )
     }
 
     if (versionLinePattern.test(line)) {
@@ -76,19 +86,23 @@ function replaceCargoTomlVersion(source, targetVersion) {
     }
   }
 
-  return null
+  if (!inPackageSection) {
+    throw new Error(
+      'Unable to update native/Cargo.toml because no [package] section was found',
+    )
+  }
+
+  throw new Error(
+    'Unable to update native/Cargo.toml because the [package] section does not contain a version field',
+  )
 }
 
 const cargoTomlVersion = findCargoTomlVersion(cargoToml)
 const cargoLockVersionMatch = cargoLock.match(createCargoLockVersionPattern())
 
-if (!cargoTomlVersion || !cargoLockVersionMatch) {
-  const missingFiles = [
-    !cargoTomlVersion ? 'native/Cargo.toml' : null,
-    !cargoLockVersionMatch ? 'native/Cargo.lock' : null,
-  ].filter(Boolean)
+if (!cargoLockVersionMatch) {
   throw new Error(
-    `Unable to locate native package version metadata in ${missingFiles.join(', ')}`,
+    `Unable to find the ${packageName} package entry in native/Cargo.lock`,
   )
 }
 
@@ -108,9 +122,14 @@ if (mode === 'check') {
   }
 } else {
   const nextCargoToml = replaceCargoTomlVersion(cargoToml, version)
-  if (!nextCargoToml) {
+  const nextCargoLock = cargoLock.replace(
+    createCargoLockVersionPattern(true),
+    `$1${version}$3`,
+  )
+
+  if (nextCargoLock === cargoLock) {
     throw new Error(
-      'Unable to update native/Cargo.toml because the package version field was not found',
+      `Unable to update native/Cargo.lock because the ${packageName} package entry was not found`,
     )
   }
 
@@ -120,9 +139,6 @@ if (mode === 'check') {
   )
   writeFileSync(
     cargoLockPath,
-    cargoLock.replace(
-      createCargoLockVersionPattern(true),
-      `$1${version}$3`,
-    ),
+    nextCargoLock,
   )
 }
