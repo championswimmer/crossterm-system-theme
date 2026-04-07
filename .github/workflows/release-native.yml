@@ -118,7 +118,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for pkg in npm/*; do
-            npm publish "$pkg" --access public
+            npm publish "./$pkg" --access public
           done
 
       - name: Publish root package
