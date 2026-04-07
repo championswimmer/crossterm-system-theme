@@ -8,3 +8,4 @@ native/target/
 native/index.js
 native/index.d.ts
 
+.pi/hf-sessions/
