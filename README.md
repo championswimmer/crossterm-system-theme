@@ -9,6 +9,7 @@ Detect the current system theme (`light` / `dark`) in Node.js CLI and TUI apps â
 ![N-API 8](https://img.shields.io/badge/N--API-8-6e40c9)
 ![OS: macOS | Windows | Linux](https://img.shields.io/badge/OS-macOS%20%7C%20Windows%20%7C%20Linux-0a66c2)
 ![Linux targets: GNOME | KDE | Wayland | X11](https://img.shields.io/badge/Linux-GNOME%20%7C%20KDE%20%7C%20Wayland%20%7C%20X11-fcc624?logo=linux&logoColor=black)
+[![npm version](https://img.shields.io/npm/v/crossterm-system-theme)](https://www.npmjs.com/package/crossterm-system-theme)
 ![GitHub tag](https://img.shields.io/github/v/tag/championswimmer/crossterm-system-theme?label=latest%20tag)
 
 ## Install
