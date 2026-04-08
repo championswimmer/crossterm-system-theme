@@ -1,36 +1,56 @@
-use objc2_foundation::{ns_string, NSDate, NSRunLoop};
-use objc2::{msg_send, class};
-use std::ffi::c_void;
-
-#[repr(C)]
-pub struct NSUserDefaultsObserver {
-    isa: *const c_void,
-}
+use objc2_foundation::{ns_string, NSDistributedNotificationCenter, NSNotificationCenter, NSNotification, NSDate, NSRunLoop};
+use block2::RcBlock;
+use std::ptr::NonNull;
 
 fn main() {
-    println!("Starting loop testing NSApp effectiveAppearance...");
+    println!("Starting test with AppleInterfaceThemeChangedNotification AND NSApplicationLoad...");
     
-    // We cannot easily do KVO in raw Rust without declaring a whole ObjC class.
-    // Instead, let's just write a tight loop testing NSUserDefaults "AppleInterfaceStyle" directly
-    // to see if it changes instantly upon theme toggle.
+    // We need an NSApplication instance to start emitting UI notifications in background CLI tools
+    #[link(name = "AppKit", kind = "framework")]
+    extern "C" {
+        fn NSApplicationLoad() -> bool;
+    }
     
-    println!("Looping for 15 seconds. Please toggle theme now.");
-    for i in 0..15 {
+    unsafe {
+        NSApplicationLoad();
+    }
+    
+    let dist_center = NSDistributedNotificationCenter::defaultCenter();
+    dist_center.setSuspended(false);
+
+    let observer_block = RcBlock::new(move |_notification: NonNull<NSNotification>| {
+        println!("DISTRIBUTED AppleInterfaceThemeChangedNotification RECEIVED!");
+    });
+    
+    unsafe {
+        dist_center.addObserverForName_object_queue_usingBlock(
+            Some(ns_string!("AppleInterfaceThemeChangedNotification")),
+            None,
+            None,
+            &observer_block,
+        );
+    }
+    
+    let observer_block2 = RcBlock::new(move |_notification: NonNull<NSNotification>| {
+        println!("DISTRIBUTED AppleColorPreferencesChangedNotification RECEIVED!");
+    });
+    
+    unsafe {
+        dist_center.addObserverForName_object_queue_usingBlock(
+            Some(ns_string!("AppleColorPreferencesChangedNotification")),
+            None,
+            None,
+            &observer_block2,
+        );
+    }
+
+    println!("Pumping NSRunLoop for 10 seconds. Please toggle theme now.");
+    
+    for i in 0..10 {
         unsafe {
-            let user_defaults: *mut objc2::runtime::AnyObject = msg_send![class!(NSUserDefaults), standardUserDefaults];
-            let style: *mut objc2::runtime::AnyObject = msg_send![user_defaults, stringForKey: ns_string!("AppleInterfaceStyle")];
-            
-            let style_str = if style.is_null() {
-                "Light"
-            } else {
-                "Dark"
-            };
-            
-            println!("Tick {}: {}", i, style_str);
-            
-            let date: *mut objc2::runtime::AnyObject = msg_send![class!(NSDate), dateWithTimeIntervalSinceNow: 1.0f64];
-            let run_loop: *mut objc2::runtime::AnyObject = msg_send![class!(NSRunLoop), currentRunLoop];
-            let _: () = msg_send![run_loop, runUntilDate: date];
+            let date = NSDate::dateWithTimeIntervalSinceNow(1.0);
+            NSRunLoop::currentRunLoop().runUntilDate(&date);
         }
+        println!("Tick {}...", i);
     }
 }

@@ -12,7 +12,14 @@ use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 
 #[cfg(target_os = "macos")]
-// removed block2/objc2_foundation because we're just polling now
+use std::ptr::NonNull;
+
+#[cfg(target_os = "macos")]
+use block2::RcBlock;
+#[cfg(target_os = "macos")]
+use objc2_foundation::{
+    ns_string, NSDistributedNotificationCenter, NSNotification, NSOperationQueue,
+};
 
 use crate::{
     api::Theme,
@@ -22,6 +29,11 @@ use crate::{
 #[cfg(not(target_os = "macos"))]
 const POLL_INTERVAL: Duration = Duration::from_millis(750);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[cfg(target_os = "macos")]
+const RUN_LOOP_SLICE: Duration = Duration::from_millis(250);
+#[cfg(target_os = "macos")]
+const THEME_CHANGED_NOTIFICATION: &str = "AppleInterfaceThemeChangedNotification";
 
 struct MonitorState {
     stop_flag: Arc<AtomicBool>,
@@ -168,33 +180,61 @@ fn run_macos_monitor_loop(
     mut last_theme: Theme,
     startup_tx: Sender<MonitorStartupStatus>,
 ) {
+    // In background CLI tools on macOS, we MUST call NSApplicationLoad() 
+    // to connect to the window server so that distributed notifications flow.
+    #[link(name = "AppKit", kind = "framework")]
+    extern "C" {
+        fn NSApplicationLoad() -> bool;
+    }
+    unsafe {
+        NSApplicationLoad();
+    }
+
+    let center = NSDistributedNotificationCenter::defaultCenter();
+    center.setSuspended(false);
+
+    let queue = NSOperationQueue::new();
+    let (event_tx, event_rx) = mpsc::channel::<()>();
+
+    let observer_block = RcBlock::new(move |_notification: NonNull<NSNotification>| {
+        let _ = event_tx.send(());
+    });
+
+    // SAFETY: observer token is retained for this monitor loop lifetime.
+    let observer_token = unsafe {
+        center.addObserverForName_object_queue_usingBlock(
+            Some(ns_string!(THEME_CHANGED_NOTIFICATION)),
+            None,
+            Some(&queue),
+            &observer_block,
+        )
+    };
+
     let _ = startup_tx.send(MonitorStartupStatus::Ready);
 
-    // AppleInterfaceThemeChangedNotification is extremely unreliable in newer macOS versions.
-    // Instead of KVO (which is complex to write in pure Rust without full class definition),
-    // we use a simple polling loop reading from NSUserDefaults (which is how `dark-light` checks the theme).
-    
-    // We poll at a fast interval that won't noticeably drain battery.
-    let poll_duration = Duration::from_millis(500);
-
     while !stop_flag.load(Ordering::Acquire) {
-        thread::sleep(poll_duration);
+        match event_rx.recv_timeout(RUN_LOOP_SLICE) {
+            Ok(()) => {
+                let detected_theme = match platform::detect() {
+                    Ok(theme) => theme,
+                    Err(_) => continue,
+                };
 
-        if stop_flag.load(Ordering::Acquire) {
-            break;
+                if detected_theme == last_theme {
+                    continue;
+                }
+
+                last_theme = detected_theme;
+                emit_theme_change(&callback, detected_theme);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
+    }
 
-        let detected_theme = match platform::detect() {
-            Ok(theme) => theme,
-            Err(_) => continue,
-        };
-
-        if detected_theme == last_theme {
-            continue;
-        }
-
-        last_theme = detected_theme;
-        emit_theme_change(&callback, detected_theme);
+    // SAFETY: observer token was returned by this center registration.
+    unsafe {
+        center.removeObserver(observer_token.as_ref());
     }
 }
 
