@@ -34,7 +34,7 @@
     "clean": "rimraf dist coverage *.node",
     "build": "npm run build:native && npm run build:ts",
     "build:ts": "tsup",
-    "build:native": "napi build --platform --release --manifest-path native/Cargo.toml",
+    "build:native": "napi build --platform --release --manifest-path native/Cargo.toml && node ./scripts/build-macos-helper.mjs",
     "build:native:debug": "napi build --platform --manifest-path native/Cargo.toml",
     "native:test": "cargo test --manifest-path native/Cargo.toml",
     "native:check": "cargo check --manifest-path native/Cargo.toml",

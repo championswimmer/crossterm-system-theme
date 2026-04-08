@@ -7,5 +7,6 @@ coverage/
 native/target/
 native/index.js
 native/index.d.ts
+native/macos-theme-helper
 
 .pi/hf-sessions/

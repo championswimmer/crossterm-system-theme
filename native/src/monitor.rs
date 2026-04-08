@@ -8,36 +8,30 @@ use std::{
     time::Duration,
 };
 
+#[cfg(target_os = "macos")]
+use std::{
+    io::{BufRead, BufReader},
+    process::{Child, ChildStdout, Command, Stdio},
+};
+
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 
-#[cfg(target_os = "macos")]
-use std::ptr::NonNull;
+use crate::platform::PlatformError;
 
 #[cfg(target_os = "macos")]
-use block2::RcBlock;
-#[cfg(target_os = "macos")]
-use objc2_foundation::{
-    ns_string, NSDistributedNotificationCenter, NSNotification, NSOperationQueue,
-};
+use crate::{api::Theme, platform};
 
-use crate::{
-    api::Theme,
-    platform::{self, PlatformError},
-};
-
-#[cfg(not(target_os = "macos"))]
-const POLL_INTERVAL: Duration = Duration::from_millis(750);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[cfg(target_os = "macos")]
-const RUN_LOOP_SLICE: Duration = Duration::from_millis(250);
-#[cfg(target_os = "macos")]
-const THEME_CHANGED_NOTIFICATION: &str = "AppleInterfaceThemeChangedNotification";
+const HELPER_PATH_ENV: &str = "CROSSTERM_SYSTEM_THEME_HELPER_PATH";
 
 struct MonitorState {
     stop_flag: Arc<AtomicBool>,
     join_handle: Option<JoinHandle<()>>,
+    #[cfg(target_os = "macos")]
+    helper_child: Option<Child>,
 }
 
 enum MonitorStartupStatus {
@@ -57,6 +51,13 @@ impl NativeMonitorHandle {
         };
 
         guard.stop_flag.store(true, Ordering::Release);
+
+        #[cfg(target_os = "macos")]
+        if let Some(mut child) = guard.helper_child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
         if let Some(join_handle) = guard.join_handle.take() {
             let _ = join_handle.join();
         }
@@ -71,6 +72,13 @@ impl Drop for NativeMonitorHandle {
         };
 
         state.stop_flag.store(true, Ordering::Release);
+
+        #[cfg(target_os = "macos")]
+        if let Some(mut child) = state.helper_child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
         if let Some(join_handle) = state.join_handle.take() {
             let _ = join_handle.join();
         }
@@ -85,10 +93,41 @@ impl NativeMonitorHandle {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn start_theme_monitor(
+    callback: ThreadsafeFunction<String>,
+) -> Result<NativeMonitorHandle, PlatformError> {
+    let _ = callback;
+    Err(PlatformError::unsupported(
+        "Native theme monitoring is not available on this platform/session. Use polling with getSystemTheme().",
+    ))
+}
+
+#[cfg(target_os = "macos")]
 pub(crate) fn start_theme_monitor(
     callback: ThreadsafeFunction<String>,
 ) -> Result<NativeMonitorHandle, PlatformError> {
     let initial_theme = platform::detect()?;
+
+    let helper_path = std::env::var(HELPER_PATH_ENV).map_err(|_| {
+        PlatformError::unsupported(format!(
+            "macOS monitor helper path not configured. Set {HELPER_PATH_ENV}."
+        ))
+    })?;
+
+    let mut helper_child = Command::new(&helper_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| {
+            PlatformError::unsupported(format!(
+                "Could not start macOS monitor helper at '{helper_path}': {error}"
+            ))
+        })?;
+
+    let helper_stdout = helper_child.stdout.take().ok_or_else(|| {
+        PlatformError::internal("macOS monitor helper did not provide stdout".to_string())
+    })?;
 
     let stop_flag = Arc::new(AtomicBool::new(false));
     let stop_flag_for_thread = Arc::clone(&stop_flag);
@@ -97,8 +136,18 @@ pub(crate) fn start_theme_monitor(
 
     let join_handle = thread::Builder::new()
         .name("crossterm-system-theme-monitor".to_string())
-        .spawn(move || run_monitor_loop(callback, stop_flag_for_thread, initial_theme, startup_tx))
+        .spawn(move || {
+            run_macos_helper_loop(
+                callback,
+                stop_flag_for_thread,
+                initial_theme,
+                helper_stdout,
+                startup_tx,
+            )
+        })
         .map_err(|error| {
+            let _ = helper_child.kill();
+            let _ = helper_child.wait();
             PlatformError::internal(format!(
                 "Could not start theme monitor background thread: {error}"
             ))
@@ -111,10 +160,13 @@ pub(crate) fn start_theme_monitor(
             state: Mutex::new(MonitorState {
                 stop_flag,
                 join_handle,
+                helper_child: Some(helper_child),
             }),
         }),
         Err(error) => {
             stop_flag.store(true, Ordering::Release);
+            let _ = helper_child.kill();
+            let _ = helper_child.wait();
             if let Some(handle) = join_handle.take() {
                 let _ = handle.join();
             }
@@ -125,43 +177,30 @@ pub(crate) fn start_theme_monitor(
     }
 }
 
-fn run_monitor_loop(
-    callback: ThreadsafeFunction<String>,
-    stop_flag: Arc<AtomicBool>,
-    initial_theme: Theme,
-    startup_tx: Sender<MonitorStartupStatus>,
-) {
-    #[cfg(target_os = "macos")]
-    {
-        run_macos_monitor_loop(callback, stop_flag, initial_theme, startup_tx);
-        return;
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        run_poll_monitor_loop(callback, stop_flag, initial_theme, startup_tx);
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn run_poll_monitor_loop(
+#[cfg(target_os = "macos")]
+fn run_macos_helper_loop(
     callback: ThreadsafeFunction<String>,
     stop_flag: Arc<AtomicBool>,
     mut last_theme: Theme,
+    helper_stdout: ChildStdout,
     startup_tx: Sender<MonitorStartupStatus>,
 ) {
     let _ = startup_tx.send(MonitorStartupStatus::Ready);
 
-    while !stop_flag.load(Ordering::Acquire) {
-        thread::sleep(POLL_INTERVAL);
-
+    let reader = BufReader::new(helper_stdout);
+    for line_result in reader.lines() {
         if stop_flag.load(Ordering::Acquire) {
             break;
         }
 
-        let detected_theme = match platform::detect() {
-            Ok(theme) => theme,
-            Err(_) => continue,
+        let line = match line_result {
+            Ok(line) => line,
+            Err(_) => break,
+        };
+
+        let detected_theme = match parse_helper_theme_line(&line) {
+            Some(theme) => theme,
+            None => continue,
         };
 
         if detected_theme == last_theme {
@@ -174,70 +213,15 @@ fn run_poll_monitor_loop(
 }
 
 #[cfg(target_os = "macos")]
-fn run_macos_monitor_loop(
-    callback: ThreadsafeFunction<String>,
-    stop_flag: Arc<AtomicBool>,
-    mut last_theme: Theme,
-    startup_tx: Sender<MonitorStartupStatus>,
-) {
-    // In background CLI tools on macOS, we MUST call NSApplicationLoad() 
-    // to connect to the window server so that distributed notifications flow.
-    #[link(name = "AppKit", kind = "framework")]
-    extern "C" {
-        fn NSApplicationLoad() -> bool;
-    }
-    unsafe {
-        NSApplicationLoad();
-    }
-
-    let center = NSDistributedNotificationCenter::defaultCenter();
-    center.setSuspended(false);
-
-    let queue = NSOperationQueue::new();
-    let (event_tx, event_rx) = mpsc::channel::<()>();
-
-    let observer_block = RcBlock::new(move |_notification: NonNull<NSNotification>| {
-        let _ = event_tx.send(());
-    });
-
-    // SAFETY: observer token is retained for this monitor loop lifetime.
-    let observer_token = unsafe {
-        center.addObserverForName_object_queue_usingBlock(
-            Some(ns_string!(THEME_CHANGED_NOTIFICATION)),
-            None,
-            Some(&queue),
-            &observer_block,
-        )
-    };
-
-    let _ = startup_tx.send(MonitorStartupStatus::Ready);
-
-    while !stop_flag.load(Ordering::Acquire) {
-        match event_rx.recv_timeout(RUN_LOOP_SLICE) {
-            Ok(()) => {
-                let detected_theme = match platform::detect() {
-                    Ok(theme) => theme,
-                    Err(_) => continue,
-                };
-
-                if detected_theme == last_theme {
-                    continue;
-                }
-
-                last_theme = detected_theme;
-                emit_theme_change(&callback, detected_theme);
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-        }
-    }
-
-    // SAFETY: observer token was returned by this center registration.
-    unsafe {
-        center.removeObserver(observer_token.as_ref());
+fn parse_helper_theme_line(line: &str) -> Option<Theme> {
+    match line.trim() {
+        "light" => Some(Theme::Light),
+        "dark" => Some(Theme::Dark),
+        _ => None,
     }
 }
 
+#[cfg(target_os = "macos")]
 fn emit_theme_change(callback: &ThreadsafeFunction<String>, theme: Theme) {
     let _ = callback.call(
         Ok(theme.as_str().to_string()),

@@ -13,17 +13,28 @@ napi = { version = "3.2.5", default-features = false, features = ["napi8"] }
 napi-derive = "3.2.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+bitflags = "2.10.0"
 block2 = "0.6.2"
-objc2 = "0.6.3"
+cocoa = "0.25.0"
+lazy_static = "1.5.0"
+libc = "0.2.177"
+objc = "0.2.7"
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+  "NSApplication",
+  "NSAppearance",
+  "NSColor",
+  "NSResponder",
+] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = [
   "alloc",
+  "NSDictionary",
   "NSDistributedNotificationCenter",
+  "NSKeyValueObserving",
   "NSNotification",
   "NSObjCRuntime",
   "NSOperation",
   "NSString",
-  "NSDate",
-  "NSRunLoop",
   "block2",
 ] }
 

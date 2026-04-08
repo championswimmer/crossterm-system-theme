@@ -60,5 +60,6 @@ try {
 
 ## Notes
 
-- Monitoring support is best-effort by environment.
-- If monitoring is not available, a `MonitoringUnsupportedError` is thrown so you can gracefully fall back to polling.
+- `monitorSystemTheme` is a native event listener (no internal polling fallback).
+- On macOS, monitoring runs through a dedicated native helper process with an AppKit run loop (improves reliability for Control Center / menu bar toggles).
+- If native monitoring is unavailable in the current platform/session, `monitorSystemTheme` throws `MonitoringUnsupportedError` so you can gracefully fall back to your own polling strategy.

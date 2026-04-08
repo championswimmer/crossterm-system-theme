@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
@@ -42,6 +42,7 @@ export function getNativeBinding(): NativeBinding {
   }
 
   cachedNativeBinding = loadNativeBinding()
+  configureMacosMonitorHelperEnv()
   return cachedNativeBinding
 }
 
@@ -190,4 +191,28 @@ function isMuslFromReport(): boolean | null {
   return report.sharedObjects.some(
     (entry: string) => entry.includes('libc.musl-') || entry.includes('ld-musl-')
   )
+}
+
+function configureMacosMonitorHelperEnv(): void {
+  if (process.platform !== 'darwin') {
+    return
+  }
+
+  if (process.env.CROSSTERM_SYSTEM_THEME_HELPER_PATH) {
+    return
+  }
+
+  const candidates = [
+    join(moduleDirectory, '..', 'native', 'macos-theme-helper'),
+    join(moduleDirectory, '..', 'macos-theme-helper'),
+    join(moduleDirectory, '..', '..', 'native', 'macos-theme-helper'),
+    join(moduleDirectory, '..', '..', 'macos-theme-helper')
+  ]
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      process.env.CROSSTERM_SYSTEM_THEME_HELPER_PATH = candidate
+      return
+    }
+  }
 }
