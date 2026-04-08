@@ -1,19 +1,36 @@
 #![allow(non_snake_case)]
 #![allow(unexpected_cfgs)]
 
+#[cfg(not(target_os = "macos"))]
+fn main() {
+    eprintln!("macos-theme-helper is only supported on macOS");
+    std::process::exit(1);
+}
+
+#[cfg(target_os = "macos")]
 #[macro_use]
 extern crate objc;
 
+#[cfg(target_os = "macos")]
 use cocoa::appkit::{NSApp, NSApplication};
+#[cfg(target_os = "macos")]
 use cocoa::base::{id, nil};
+#[cfg(target_os = "macos")]
 use cocoa::foundation::{NSArray, NSAutoreleasePool, NSDictionary, NSString, NSUInteger};
+#[cfg(target_os = "macos")]
 use lazy_static::lazy_static;
+#[cfg(target_os = "macos")]
 use objc::declare::ClassDecl;
+#[cfg(target_os = "macos")]
 use objc::rc::{StrongPtr, WeakPtr};
+#[cfg(target_os = "macos")]
 use objc::runtime::{Class, Object, Sel};
+#[cfg(target_os = "macos")]
 use std::io::Write;
+#[cfg(target_os = "macos")]
 use std::ops::Deref;
 
+#[cfg(target_os = "macos")]
 bitflags::bitflags! {
     struct NSKeyValueObservingOptions: NSUInteger {
         const NEW = 0x01;
@@ -21,14 +38,17 @@ bitflags::bitflags! {
     }
 }
 
+#[cfg(target_os = "macos")]
 type ObserverCallback = Box<dyn Fn(id)>;
 
+#[cfg(target_os = "macos")]
 fn get_callback(self_obj: &mut Object) -> &mut dyn Fn(id) {
     let boxed: *mut libc::c_void = unsafe { *self_obj.get_ivar("_callback") };
     let callback: *mut ObserverCallback = boxed.cast();
     unsafe { &mut **callback }
 }
 
+#[cfg(target_os = "macos")]
 lazy_static! {
     static ref RUST_KVO_HELPER: &'static Class = {
         let superclass = class!(NSObject);
@@ -68,12 +88,14 @@ lazy_static! {
     };
 }
 
+#[cfg(target_os = "macos")]
 struct KeyValueObserver {
     observer: StrongPtr,
     observed_object: WeakPtr,
     key_path: id,
 }
 
+#[cfg(target_os = "macos")]
 impl KeyValueObserver {
     fn observe(
         object: id,
@@ -109,6 +131,7 @@ impl KeyValueObserver {
     }
 }
 
+#[cfg(target_os = "macos")]
 impl Drop for KeyValueObserver {
     fn drop(&mut self) {
         unsafe {
@@ -126,12 +149,14 @@ impl Drop for KeyValueObserver {
     }
 }
 
+#[cfg(target_os = "macos")]
 #[link(name = "AppKit", kind = "framework")]
 extern "C" {
     static NSAppearanceNameAqua: id;
     static NSAppearanceNameDarkAqua: id;
 }
 
+#[cfg(target_os = "macos")]
 fn appearance_to_theme(names: id, appearance: id) -> &'static str {
     unsafe {
         let best_match: id = msg_send![appearance, bestMatchFromAppearancesWithNames: names];
@@ -143,11 +168,13 @@ fn appearance_to_theme(names: id, appearance: id) -> &'static str {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn emit_theme(theme: &str) {
     println!("{}", theme);
     let _ = std::io::stdout().flush();
 }
 
+#[cfg(target_os = "macos")]
 fn main() {
     unsafe {
         let _pool = NSAutoreleasePool::new(nil);
