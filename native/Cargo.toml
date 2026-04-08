@@ -1,6 +1,6 @@
 [package]
 name = "crossterm-system-theme"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 
 [lib]
@@ -10,6 +10,10 @@ crate-type = ["cdylib"]
 [[bin]]
 name = "test_mac"
 path = "src/test_mac.rs"
+required-features = ["macos_test"]
+
+[features]
+macos_test = []
 
 [dependencies]
 dark-light = "2.0.0"

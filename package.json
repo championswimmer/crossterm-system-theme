@@ -1,6 +1,6 @@
 {
   "name": "crossterm-system-theme",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Detect system light/dark theme for Node.js CLI and TUI apps",
   "type": "module",
   "main": "./dist/index.cjs",
