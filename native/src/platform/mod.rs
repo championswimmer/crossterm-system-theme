@@ -6,7 +6,7 @@ pub(crate) use linux::detect;
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
-pub(crate) use windows::detect;
+pub(crate) use windows::{detect, open_monitor_key};
 
 #[cfg(target_os = "macos")]
 mod macos;

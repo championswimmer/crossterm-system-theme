@@ -1,27 +1,47 @@
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, Sender},
         Arc, Mutex,
     },
-    thread::{self, JoinHandle},
-    time::Duration,
+    thread::JoinHandle,
 };
 
 #[cfg(target_os = "macos")]
 use std::{
     io::{BufRead, BufReader},
     process::{Child, ChildStdout, Command, Stdio},
+    sync::mpsc::{self, Sender},
+    thread,
+    time::Duration,
 };
 
-use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
+#[cfg(target_os = "windows")]
+use std::thread;
+
+use napi::threadsafe_function::ThreadsafeFunction;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use napi::threadsafe_function::ThreadsafeFunctionCallMode;
 use napi_derive::napi;
 
 use crate::platform::PlatformError;
 
 #[cfg(target_os = "macos")]
 use crate::{api::Theme, platform};
+#[cfg(target_os = "windows")]
+use crate::{api::Theme, platform};
 
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::{
+    Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0},
+    System::{
+        Registry::{RegNotifyChangeKeyValue, REG_NOTIFY_CHANGE_LAST_SET},
+        Threading::{CreateEventW, SetEvent, WaitForMultipleObjects, INFINITE},
+    },
+};
+#[cfg(target_os = "windows")]
+use winreg::RegKey;
+
+#[cfg(target_os = "macos")]
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[cfg(target_os = "macos")]
@@ -32,8 +52,11 @@ struct MonitorState {
     join_handle: Option<JoinHandle<()>>,
     #[cfg(target_os = "macos")]
     helper_child: Option<Child>,
+    #[cfg(target_os = "windows")]
+    stop_event: Option<HANDLE>,
 }
 
+#[cfg(target_os = "macos")]
 enum MonitorStartupStatus {
     Ready,
 }
@@ -58,8 +81,20 @@ impl NativeMonitorHandle {
             let _ = child.wait();
         }
 
+        #[cfg(target_os = "windows")]
+        if let Some(stop_event) = guard.stop_event {
+            unsafe {
+                let _ = SetEvent(stop_event);
+            }
+        }
+
         if let Some(join_handle) = guard.join_handle.take() {
             let _ = join_handle.join();
+        }
+
+        #[cfg(target_os = "windows")]
+        if let Some(stop_event) = guard.stop_event.take() {
+            close_windows_handle(stop_event);
         }
     }
 }
@@ -79,8 +114,20 @@ impl Drop for NativeMonitorHandle {
             let _ = child.wait();
         }
 
+        #[cfg(target_os = "windows")]
+        if let Some(stop_event) = state.stop_event {
+            unsafe {
+                let _ = SetEvent(stop_event);
+            }
+        }
+
         if let Some(join_handle) = state.join_handle.take() {
             let _ = join_handle.join();
+        }
+
+        #[cfg(target_os = "windows")]
+        if let Some(stop_event) = state.stop_event.take() {
+            close_windows_handle(stop_event);
         }
     }
 }
@@ -93,7 +140,7 @@ impl NativeMonitorHandle {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub(crate) fn start_theme_monitor(
     callback: ThreadsafeFunction<String>,
 ) -> Result<NativeMonitorHandle, PlatformError> {
@@ -101,6 +148,43 @@ pub(crate) fn start_theme_monitor(
     Err(PlatformError::unsupported(
         "Native theme monitoring is not available on this platform/session. Use polling with getSystemTheme().",
     ))
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn start_theme_monitor(
+    callback: ThreadsafeFunction<String>,
+) -> Result<NativeMonitorHandle, PlatformError> {
+    let initial_theme = platform::detect()?;
+    let monitor_key = platform::open_monitor_key()?;
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let stop_flag_for_thread = Arc::clone(&stop_flag);
+    let stop_event = create_windows_event(true, false)?;
+
+    let join_handle = thread::Builder::new()
+        .name("crossterm-system-theme-monitor".to_string())
+        .spawn(move || {
+            run_windows_monitor_loop(
+                callback,
+                stop_flag_for_thread,
+                stop_event,
+                initial_theme,
+                monitor_key,
+            )
+        })
+        .map_err(|error| {
+            close_windows_handle(stop_event);
+            PlatformError::internal(format!(
+                "Could not start theme monitor background thread: {error}"
+            ))
+        })?;
+
+    Ok(NativeMonitorHandle {
+        state: Mutex::new(MonitorState {
+            stop_flag,
+            join_handle: Some(join_handle),
+            stop_event: Some(stop_event),
+        }),
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -221,10 +305,113 @@ fn parse_helper_theme_line(line: &str) -> Option<Theme> {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn emit_theme_change(callback: &ThreadsafeFunction<String>, theme: Theme) {
     let _ = callback.call(
         Ok(theme.as_str().to_string()),
         ThreadsafeFunctionCallMode::NonBlocking,
     );
+}
+
+#[cfg(target_os = "windows")]
+fn run_windows_monitor_loop(
+    callback: ThreadsafeFunction<String>,
+    stop_flag: Arc<AtomicBool>,
+    stop_event: HANDLE,
+    mut last_theme: Theme,
+    monitor_key: RegKey,
+) {
+    let change_event = match create_windows_event(false, false) {
+        Ok(handle) => handle,
+        Err(_) => return,
+    };
+
+    while !stop_flag.load(Ordering::Acquire) {
+        if arm_windows_registry_notification(&monitor_key, change_event).is_err() {
+            break;
+        }
+
+        let handles = [stop_event, change_event];
+        let wait_result =
+            unsafe { WaitForMultipleObjects(handles.len() as u32, handles.as_ptr(), 0, INFINITE) };
+
+        if wait_result == WAIT_OBJECT_0 {
+            break;
+        }
+
+        if wait_result == WAIT_OBJECT_0 + 1 {
+            let detected_theme = match platform::detect() {
+                Ok(theme) => theme,
+                Err(_) => continue,
+            };
+
+            if detected_theme != last_theme {
+                last_theme = detected_theme;
+                emit_theme_change(&callback, detected_theme);
+            }
+
+            continue;
+        }
+
+        break;
+    }
+
+    close_windows_handle(change_event);
+}
+
+#[cfg(target_os = "windows")]
+fn arm_windows_registry_notification(
+    monitor_key: &RegKey,
+    change_event: HANDLE,
+) -> Result<(), PlatformError> {
+    let status = unsafe {
+        RegNotifyChangeKeyValue(
+            monitor_key.raw_handle(),
+            1,
+            REG_NOTIFY_CHANGE_LAST_SET,
+            change_event,
+            1,
+        )
+    };
+
+    if status == 0 {
+        return Ok(());
+    }
+
+    Err(PlatformError::internal(format!(
+        "Could not arm Windows theme monitor: {}",
+        std::io::Error::from_raw_os_error(status as i32)
+    )))
+}
+
+#[cfg(target_os = "windows")]
+fn create_windows_event(manual_reset: bool, initial_state: bool) -> Result<HANDLE, PlatformError> {
+    let handle = unsafe {
+        CreateEventW(
+            std::ptr::null(),
+            manual_reset as i32,
+            initial_state as i32,
+            std::ptr::null(),
+        )
+    };
+
+    if !handle.is_null() {
+        return Ok(handle);
+    }
+
+    Err(PlatformError::internal(format!(
+        "Could not create Windows monitor event: {}",
+        std::io::Error::last_os_error()
+    )))
+}
+
+#[cfg(target_os = "windows")]
+fn close_windows_handle(handle: HANDLE) {
+    if handle.is_null() {
+        return;
+    }
+
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
 }

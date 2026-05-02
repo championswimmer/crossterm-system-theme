@@ -62,4 +62,5 @@ try {
 
 - `monitorSystemTheme` is a native event listener (no internal polling fallback).
 - On macOS, monitoring runs through a dedicated native helper process with an AppKit run loop (improves reliability for Control Center / menu bar toggles).
+- On Windows, detection reads the Personalize registry value directly and monitoring listens for registry changes natively.
 - If native monitoring is unavailable in the current platform/session, `monitorSystemTheme` throws `MonitoringUnsupportedError` so you can gracefully fall back to your own polling strategy.

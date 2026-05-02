@@ -1,20 +1,24 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createThemeClient } from '../src/internal/client.js'
 import { MonitoringUnsupportedError } from '../src/errors.js'
 import { CommandExecutionError } from '../src/internal/exec.js'
+import {
+  __setNativeBindingForTests,
+  type NativeBinding
+} from '../src/internal/native.js'
 import { FakeExec, controllableChildProcess } from './helpers/fake-exec.js'
 
 describe('createThemeClient', () => {
+  beforeEach(() => {
+    __setNativeBindingForTests(undefined)
+  })
+
   it('detects macOS dark mode with defaults', async () => {
     const exec = new FakeExec()
-    exec.onExecFile(
-      'defaults',
-      ['read', '-g', 'AppleInterfaceStyle'],
-      {
-        type: 'ok',
-        value: { stdout: 'Dark\n', stderr: '', exitCode: 0 }
-      }
-    )
+    exec.onExecFile('defaults', ['read', '-g', 'AppleInterfaceStyle'], {
+      type: 'ok',
+      value: { stdout: 'Dark\n', stderr: '', exitCode: 0 }
+    })
 
     const client = createThemeClient({ platform: 'darwin', exec })
     await expect(client.getSystemTheme()).resolves.toBe('dark')
@@ -22,48 +26,61 @@ describe('createThemeClient', () => {
 
   it('falls back to light when macOS interface style key is missing', async () => {
     const exec = new FakeExec()
-    exec.onExecFile(
-      'defaults',
-      ['read', '-g', 'AppleInterfaceStyle'],
-      {
-        type: 'error',
-        error: new CommandExecutionError(
-          'missing key',
-          'non-zero',
-          {
-            stderr:
-              'The domain/default pair of (kCFPreferencesAnyApplication, AppleInterfaceStyle) does not exist'
-          }
-        )
-      }
-    )
+    exec.onExecFile('defaults', ['read', '-g', 'AppleInterfaceStyle'], {
+      type: 'error',
+      error: new CommandExecutionError('missing key', 'non-zero', {
+        stderr:
+          'The domain/default pair of (kCFPreferencesAnyApplication, AppleInterfaceStyle) does not exist'
+      })
+    })
 
     const client = createThemeClient({ platform: 'darwin', exec })
     await expect(client.getSystemTheme()).resolves.toBe('light')
   })
 
-  it('detects windows dark mode from registry value 0x0', async () => {
-    const exec = new FakeExec()
-    exec.onExecFile(
-      'reg',
-      [
-        'query',
-        'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize',
-        '/v',
-        'AppsUseLightTheme'
-      ],
-      {
-        type: 'ok',
-        value: {
-          stdout: 'AppsUseLightTheme    REG_DWORD    0x0\n',
-          stderr: '',
-          exitCode: 0
+  it('detects windows dark mode from the native binding', async () => {
+    const nativeBinding: NativeBinding = {
+      getSystemThemeNative: () => 'dark',
+      startThemeMonitorNative: () => ({
+        stop() {}
+      })
+    }
+
+    __setNativeBindingForTests(nativeBinding)
+
+    const client = createThemeClient({ platform: 'win32' })
+    await expect(client.getSystemTheme()).resolves.toBe('dark')
+  })
+
+  it('uses the native windows monitor bridge', async () => {
+    const stopSpy = vi.fn()
+    let callback: ((error: Error | null, theme: string) => void) | undefined
+
+    const nativeBinding: NativeBinding = {
+      getSystemThemeNative: () => 'light',
+      startThemeMonitorNative: (cb) => {
+        callback = cb
+        return {
+          stop: stopSpy
         }
       }
-    )
+    }
 
-    const client = createThemeClient({ platform: 'win32', exec })
-    await expect(client.getSystemTheme()).resolves.toBe('dark')
+    __setNativeBindingForTests(nativeBinding)
+
+    const changes: string[] = []
+    const client = createThemeClient({ platform: 'win32' })
+    const monitor = await client.monitorSystemTheme((theme) => {
+      changes.push(theme)
+    })
+
+    callback?.(null, 'dark')
+    callback?.(null, 'light')
+
+    expect(changes).toEqual(['dark', 'light'])
+
+    monitor.stop()
+    expect(stopSpy).toHaveBeenCalledOnce()
   })
 
   it('uses linux fallback order (portal -> gsettings) for detection', async () => {
@@ -106,14 +123,10 @@ describe('createThemeClient', () => {
 
   it('throws monitoring unsupported for non-linux platforms', async () => {
     const exec = new FakeExec()
-    exec.onExecFile(
-      'defaults',
-      ['read', '-g', 'AppleInterfaceStyle'],
-      {
-        type: 'ok',
-        value: { stdout: 'Dark\n', stderr: '', exitCode: 0 }
-      }
-    )
+    exec.onExecFile('defaults', ['read', '-g', 'AppleInterfaceStyle'], {
+      type: 'ok',
+      value: { stdout: 'Dark\n', stderr: '', exitCode: 0 }
+    })
 
     const client = createThemeClient({ platform: 'darwin', exec })
     await expect(client.monitorSystemTheme(vi.fn())).rejects.toBeInstanceOf(
