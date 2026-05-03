@@ -41,6 +41,9 @@ use windows_sys::Win32::{
 #[cfg(target_os = "windows")]
 use winreg::RegKey;
 
+#[cfg(target_os = "windows")]
+type WindowsHandle = isize;
+
 #[cfg(target_os = "macos")]
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -53,7 +56,7 @@ struct MonitorState {
     #[cfg(target_os = "macos")]
     helper_child: Option<Child>,
     #[cfg(target_os = "windows")]
-    stop_event: Option<HANDLE>,
+    stop_event: Option<WindowsHandle>,
 }
 
 #[cfg(target_os = "macos")]
@@ -84,7 +87,7 @@ impl NativeMonitorHandle {
         #[cfg(target_os = "windows")]
         if let Some(stop_event) = guard.stop_event {
             unsafe {
-                let _ = SetEvent(stop_event);
+                let _ = SetEvent(windows_handle_to_raw(stop_event));
             }
         }
 
@@ -117,7 +120,7 @@ impl Drop for NativeMonitorHandle {
         #[cfg(target_os = "windows")]
         if let Some(stop_event) = state.stop_event {
             unsafe {
-                let _ = SetEvent(stop_event);
+                let _ = SetEvent(windows_handle_to_raw(stop_event));
             }
         }
 
@@ -317,7 +320,7 @@ fn emit_theme_change(callback: &ThreadsafeFunction<String>, theme: Theme) {
 fn run_windows_monitor_loop(
     callback: ThreadsafeFunction<String>,
     stop_flag: Arc<AtomicBool>,
-    stop_event: HANDLE,
+    stop_event: WindowsHandle,
     mut last_theme: Theme,
     monitor_key: RegKey,
 ) {
@@ -331,7 +334,10 @@ fn run_windows_monitor_loop(
             break;
         }
 
-        let handles = [stop_event, change_event];
+        let handles = [
+            windows_handle_to_raw(stop_event),
+            windows_handle_to_raw(change_event),
+        ];
         let wait_result =
             unsafe { WaitForMultipleObjects(handles.len() as u32, handles.as_ptr(), 0, INFINITE) };
 
@@ -362,14 +368,14 @@ fn run_windows_monitor_loop(
 #[cfg(target_os = "windows")]
 fn arm_windows_registry_notification(
     monitor_key: &RegKey,
-    change_event: HANDLE,
+    change_event: WindowsHandle,
 ) -> Result<(), PlatformError> {
     let status = unsafe {
         RegNotifyChangeKeyValue(
-            monitor_key.raw_handle(),
+            monitor_key.raw_handle() as HANDLE,
             1,
             REG_NOTIFY_CHANGE_LAST_SET,
-            change_event,
+            windows_handle_to_raw(change_event),
             1,
         )
     };
@@ -385,7 +391,10 @@ fn arm_windows_registry_notification(
 }
 
 #[cfg(target_os = "windows")]
-fn create_windows_event(manual_reset: bool, initial_state: bool) -> Result<HANDLE, PlatformError> {
+fn create_windows_event(
+    manual_reset: bool,
+    initial_state: bool,
+) -> Result<WindowsHandle, PlatformError> {
     let handle = unsafe {
         CreateEventW(
             std::ptr::null(),
@@ -396,7 +405,7 @@ fn create_windows_event(manual_reset: bool, initial_state: bool) -> Result<HANDL
     };
 
     if !handle.is_null() {
-        return Ok(handle);
+        return Ok(handle as WindowsHandle);
     }
 
     Err(PlatformError::internal(format!(
@@ -406,12 +415,17 @@ fn create_windows_event(manual_reset: bool, initial_state: bool) -> Result<HANDL
 }
 
 #[cfg(target_os = "windows")]
-fn close_windows_handle(handle: HANDLE) {
-    if handle.is_null() {
+fn close_windows_handle(handle: WindowsHandle) {
+    if handle == 0 {
         return;
     }
 
     unsafe {
-        let _ = CloseHandle(handle);
+        let _ = CloseHandle(windows_handle_to_raw(handle));
     }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_handle_to_raw(handle: WindowsHandle) -> HANDLE {
+    handle as HANDLE
 }
