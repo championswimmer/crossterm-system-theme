@@ -372,7 +372,7 @@ fn arm_windows_registry_notification(
 ) -> Result<(), PlatformError> {
     let status = unsafe {
         RegNotifyChangeKeyValue(
-            monitor_key.raw_handle() as HANDLE,
+            registry_handle_to_raw(monitor_key.raw_handle()),
             1,
             REG_NOTIFY_CHANGE_LAST_SET,
             windows_handle_to_raw(change_event),
@@ -416,7 +416,7 @@ fn create_windows_event(
 
 #[cfg(target_os = "windows")]
 fn close_windows_handle(handle: WindowsHandle) {
-    if handle == 0 {
+    if windows_handle_to_raw(handle).is_null() {
         return;
     }
 
@@ -427,5 +427,10 @@ fn close_windows_handle(handle: WindowsHandle) {
 
 #[cfg(target_os = "windows")]
 fn windows_handle_to_raw(handle: WindowsHandle) -> HANDLE {
+    handle as HANDLE
+}
+
+#[cfg(target_os = "windows")]
+fn registry_handle_to_raw(handle: isize) -> HANDLE {
     handle as HANDLE
 }
